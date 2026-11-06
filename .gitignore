@@ -2,3 +2,4 @@ __pycache__/
 .pytest_cache/
 *.zip
 experiments/real_data/dryrun/work/
+.DS_Store
