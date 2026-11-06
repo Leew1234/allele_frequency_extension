@@ -1,0 +1,387 @@
+{
+  "version": "1.6",
+  "frozen_on": "2026-11-01",
+  "note": "Pre-registered success criteria. Frozen: criteria.sha256 holds this file's SHA-256 and evaluate_plan.py reports whether the file still matches it. Do not edit after real-data results exist; record any deviation in the report instead. v1.1 replaced the z-score comparison in P2 with a discrimination endpoint (review of v5). v1.2 (dry run, before any real data) made P2 use all units and moved the mutability-matched version to R3, because GC-rich CDS units can lack neutral units of comparable mutability. v1.3 (review of v6, before any real data) takes P2, R1c and R3 intervals from a 1 Mb block bootstrap instead of DeLong, and adds R4 (per-chromosome stability). v1.4 (review of v7, before any real data) combines the two z-scores on the neutral scale (each centred and divided by its mean and SD on neutral units, because allele frequencies are overdispersed relative to the binomial) and adds S3 (frequency calibration) and S4 (frequency-score dispersion). v1.5 (dry run, before any real data): S3 failed on the dry run and exposed a bias, so the expected number of common variants is now conditioned on where variants were observed (sum of P(common | variant) over observed variant sites, Poisson-binomial variance) in oe_common_share and the frequency z; the unconditional version is biased when the mutability model is imperfect. Criterion definitions and thresholds are unchanged. v1.6 (before any real data): G1 and G2 use the Icelandic de novo set (Jonsson et al. 2017, 108,778 DNMs, hg38, no stated access restriction) instead of denovo-db SSC (whose use is limited to autism-related research) and Platinum Pedigree (calls not located); other de novo sets are reported descriptively. Paths are relative to the results directory; {half}, {set} and {seed} expand over the lists in 'over'.",
+  "criteria": [
+    {
+      "id": "P1",
+      "group": "primary",
+      "claim": "Neutral-trained ensemble: variants in CDS are shifted toward rare (oe_common_share upper 95% bound < 1)",
+      "left": {
+        "file": "{half}/neutral.json",
+        "path": [
+          "categories",
+          "CDS",
+          "ci95",
+          "oe_common_share",
+          1
+        ]
+      },
+      "op": "<",
+      "right": 1.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "P2",
+      "group": "primary",
+      "claim": "Frequency adds discrimination beyond OVEP: CDS vs neutral units, AUC(OVEP z + frequency z, each on the neutral scale) - AUC(OVEP z), lower 95% bound (1 Mb block bootstrap) > 0",
+      "left": {
+        "file": "{half}/discrimination_neutral.json",
+        "path": [
+          "pairs",
+          "combined_minus_ovep_z",
+          "ci95_block",
+          0
+        ]
+      },
+      "op": ">",
+      "right": 0.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "P3",
+      "group": "primary",
+      "claim": "Neutral training deepens CDS depletion vs whole-genome training (paired oe_diff upper 95% bound < 0)",
+      "left": {
+        "file": "{half}/base_vs_neutral.json",
+        "path": [
+          "categories",
+          "CDS",
+          "ci95",
+          "oe_diff",
+          1
+        ]
+      },
+      "op": "<",
+      "right": 0.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "G1",
+      "group": "guardrail",
+      "claim": "Neutral training costs at most 0.01 de novo AUC (Icelandic DNMs, Jonsson et al. 2017) vs whole-genome training",
+      "left": {
+        "file": "{half}/denovo.json",
+        "path": [
+          "{set}",
+          "pairs",
+          "neutral_minus_base",
+          "diff"
+        ]
+      },
+      "op": ">=",
+      "right": -0.01,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ],
+        "set": [
+          "iceland_2017"
+        ]
+      }
+    },
+    {
+      "id": "G2",
+      "group": "guardrail",
+      "claim": "The neutral ensemble loses at most 0.01 de novo AUC (Icelandic DNMs, Jonsson et al. 2017) vs the original OVEP model",
+      "left": {
+        "file": "{half}/denovo.json",
+        "path": [
+          "{set}",
+          "pairs",
+          "neutral_minus_original",
+          "diff"
+        ]
+      },
+      "op": ">=",
+      "right": -0.01,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ],
+        "set": [
+          "iceland_2017"
+        ]
+      }
+    },
+    {
+      "id": "S1",
+      "group": "sanity",
+      "claim": "Neutral ensemble is calibrated on unannotated sites (oe within 1 +/- 0.05)",
+      "left": {
+        "file": "{half}/neutral.json",
+        "path": [
+          "categories",
+          "unannotated",
+          "oe_new"
+        ]
+      },
+      "op": "between",
+      "right": [
+        0.95,
+        1.05
+      ],
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "S2",
+      "group": "sanity",
+      "claim": "V gene segments show excess polymorphism, as in the paper (oe > 1)",
+      "left": {
+        "file": "{half}/neutral.json",
+        "path": [
+          "categories",
+          "V_gene_segment",
+          "oe_new"
+        ]
+      },
+      "op": ">",
+      "right": 1.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "S3",
+      "group": "sanity",
+      "claim": "The expected common-variant share is calibrated on unannotated sites (neutral oe_common_share within 1 +/- 0.05)",
+      "left": {
+        "file": "{half}/neutral.json",
+        "path": [
+          "categories",
+          "unannotated",
+          "oe_common_share"
+        ]
+      },
+      "op": "between",
+      "right": [
+        0.95,
+        1.05
+      ],
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "S4",
+      "group": "sanity",
+      "claim": "The frequency z is not grossly overdispersed on neutral units (SD between 0.8 and 2.0)",
+      "left": {
+        "file": "{half}/discrimination_neutral.json",
+        "path": [
+          "neutral_calibration",
+          "freq_z",
+          "sd"
+        ]
+      },
+      "op": "between",
+      "right": [
+        0.8,
+        2.0
+      ],
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "R1a",
+      "group": "robustness",
+      "claim": "P1 holds with the conservation-based neutral mask B",
+      "left": {
+        "file": "{half}/neutralB.json",
+        "path": [
+          "categories",
+          "CDS",
+          "ci95",
+          "oe_common_share",
+          1
+        ]
+      },
+      "op": "<",
+      "right": 1.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "R1b",
+      "group": "robustness",
+      "claim": "P3 holds with the conservation-based neutral mask B",
+      "left": {
+        "file": "{half}/base_vs_neutralB.json",
+        "path": [
+          "categories",
+          "CDS",
+          "ci95",
+          "oe_diff",
+          1
+        ]
+      },
+      "op": "<",
+      "right": 0.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "R1c",
+      "group": "robustness",
+      "claim": "P2 holds with the conservation-based neutral mask B (model neutralB, controls from mask B)",
+      "left": {
+        "file": "{half}/discrimination_neutralB.json",
+        "path": [
+          "pairs",
+          "combined_minus_ovep_z",
+          "ci95_block",
+          0
+        ]
+      },
+      "op": ">",
+      "right": 0.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "R2",
+      "group": "robustness",
+      "claim": "P1 holds for at least 4 of 5 single-seed neutral models (seed-subset chromosomes)",
+      "left": {
+        "file": "{half}/neutral_seed{seed}.json",
+        "path": [
+          "categories",
+          "CDS",
+          "ci95",
+          "oe_common_share",
+          1
+        ]
+      },
+      "op": "<",
+      "right": 1.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ],
+        "seed": [
+          "0",
+          "1",
+          "2",
+          "3",
+          "4"
+        ]
+      },
+      "require": {
+        "seed": 4
+      }
+    },
+    {
+      "id": "R3",
+      "group": "robustness",
+      "claim": "P2 holds on mutability-matched units only (CDS vs neutral units with the same expected variant count)",
+      "left": {
+        "file": "{half}/discrimination_neutral.json",
+        "path": [
+          "matched",
+          "pairs",
+          "combined_minus_ovep_z",
+          "ci95_block",
+          0
+        ]
+      },
+      "op": ">",
+      "right": 0.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "R4",
+      "group": "robustness",
+      "claim": "The P2 improvement is stable: AUC(OVEP z + frequency z) > AUC(OVEP z) on more than half of the test chromosomes",
+      "left": {
+        "file": "{half}/discrimination_neutral.json",
+        "path": [
+          "per_chromosome_summary",
+          "share_positive_combined_minus_ovep_z"
+        ]
+      },
+      "op": ">",
+      "right": 0.5,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    }
+  ],
+  "decisions": {
+    "H1 supported (frequency adds selection signal)": [
+      "P1",
+      "P2",
+      "G2",
+      "S1",
+      "S3"
+    ],
+    "H2 supported (neutral training reduces contamination)": [
+      "P3",
+      "G1",
+      "S1"
+    ],
+    "H1 robust": [
+      "R1a",
+      "R1c",
+      "R2",
+      "R3",
+      "R4",
+      "S4"
+    ],
+    "H2 robust": [
+      "R1b"
+    ]
+  }
+}
