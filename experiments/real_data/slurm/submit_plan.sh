@@ -20,7 +20,10 @@ set -euo pipefail
 PLAN_ENV="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 SLURM_ENV="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RUN_PLAN="$(cd "$HERE/.." && pwd)/run_plan.sh"
+# RUN_SCRIPT, SUBMIT_CONFIGS, PREP_STEPS and POST_STEPS let another pipeline
+# with the same step/slice conventions reuse this script
+# (experiments/spectrum/submit_spectrum.sh).
+RUN_PLAN="${RUN_SCRIPT:-$(cd "$HERE/.." && pwd)/run_plan.sh}"
 # shellcheck disable=SC1090
 source "$SLURM_ENV"
 # shellcheck disable=SC1090
@@ -28,7 +31,7 @@ source "$SLURM_ENV"
 WORK=$(bash -c "source '$PLAN_ENV'; echo \"\$WORK\"")
 HALVES=$(bash -c "source '$PLAN_ENV'; echo \"\${HALVES:-half1 half2}\"")
 SEEDS=$(bash -c "source '$PLAN_ENV'; echo \"\${SEEDS:-0 1 2 3 4}\"")
-CONFIGS="base neutral neutralB"
+CONFIGS="${SUBMIT_CONFIGS:-base neutral neutralB}"
 JOBDIR="$WORK/slurm/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$JOBDIR" "$WORK/logs"
 
@@ -57,7 +60,7 @@ header() {  # name partition time mem cpus gpu(0/1) [array]
 }
 
 { header prep "$PARTITION_CPU" "$PREP_TIME" "$PREP_MEM" "$PREP_CPUS" 0
-  echo "bash '$RUN_PLAN' '$PLAN_ENV' labels masks validate"; } > "$JOBDIR/prep.sh"
+  echo "bash '$RUN_PLAN' '$PLAN_ENV' ${PREP_STEPS:-labels masks validate}"; } > "$JOBDIR/prep.sh"
 { header train "$PARTITION_GPU" "$TRAIN_TIME" "$TRAIN_MEM" "$TRAIN_CPUS" 1 "1-$N_TRAIN"
   echo "read -r H C S < <(sed -n \"\${SLURM_ARRAY_TASK_ID}p\" '$JOBDIR/train_tasks.txt')"
   echo "ONLY_HALVES=\$H ONLY_CONFIGS=\$C ONLY_SEEDS=\$S bash '$RUN_PLAN' '$PLAN_ENV' train"; } > "$JOBDIR/train.sh"
@@ -65,7 +68,7 @@ header() {  # name partition time mem cpus gpu(0/1) [array]
   echo "read -r H C < <(sed -n \"\${SLURM_ARRAY_TASK_ID}p\" '$JOBDIR/predict_tasks.txt')"
   echo "ONLY_HALVES=\$H ONLY_CONFIGS=\$C bash '$RUN_PLAN' '$PLAN_ENV' predict"; } > "$JOBDIR/predict.sh"
 { header post "$PARTITION_CPU" "$POST_TIME" "$POST_MEM" "$POST_CPUS" 0
-  echo "bash '$RUN_PLAN' '$PLAN_ENV' score denovo evaluate"; } > "$JOBDIR/post.sh"
+  echo "bash '$RUN_PLAN' '$PLAN_ENV' ${POST_STEPS:-score denovo evaluate}"; } > "$JOBDIR/post.sh"
 
 submit() {  # [dependency] script -> job id
   local dep=$1 script=$2
@@ -83,7 +86,7 @@ J4=$(submit "$J3" "$JOBDIR/post.sh")
 cat <<EOF
 Job scripts: $JOBDIR
   prep     $J1
-  train    $J2  (array of $N_TRAIN: $(echo $HALVES | wc -w) halves x 3 configurations x $(echo $SEEDS | wc -w) seeds)
+  train    $J2  (array of $N_TRAIN: $(echo $HALVES | wc -w) halves x $(echo $CONFIGS | wc -w) configurations x $(echo $SEEDS | wc -w) seeds)
   predict  $J3  (array of $N_PREDICT)
   post     $J4
 Report when done: $WORK/results/criteria_report.md

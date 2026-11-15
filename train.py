@@ -15,8 +15,13 @@ make_mask.py, True = putatively neutral) and choose --mask-scope:
   all     labels outside the mask are ignored entirely; the network still sees
           the full sequence as input context (the original repo instead
           zeroed the input).
-  common  factorized head only: P(variant) learns from every site, but
-          P(common | variant) learns only from variants inside the mask.
+  common  factorized and spectrum heads: P(variant) learns from every site,
+          but the frequency part (P(common | variant), or the class softmax)
+          learns only from variants inside the mask.
+
+--head spectrum trains the frequency-spectrum model of analysis plan v2; the
+manifest's "labels" must then point at <prefix>_spectrum_labels.npy files
+(data.py --scheme spectrum).
 """
 import argparse
 import os
@@ -24,6 +29,7 @@ import json
 import math
 import numpy as np
 
+from spectrum import UNKNOWN
 
 MASK_SCOPES = ('none', 'all', 'common')
 
@@ -51,8 +57,10 @@ def valid_starts(dna, labels, window, mask=None, chunk=10_000_000):
     return ok
 
 
-def masked_labels(y, m, scope):
-    """Apply a neutral mask to one window of labels (int32 copy)."""
+def masked_labels(y, m, scope, unknown=3):
+    """Apply a neutral mask to one window of labels (int32 copy). `unknown` is
+    the code for "variant, frequency class not learned" (3 for the factorized
+    head, spectrum.UNKNOWN for the spectrum head)."""
     y = np.array(y, dtype=np.int32)
     if m is None or scope == 'none':
         return y
@@ -60,7 +68,7 @@ def masked_labels(y, m, scope):
     if scope == 'all':
         y[~m] = -1
     elif scope == 'common':
-        y[(~m) & (y >= 1)] = 3  # variant, frequency class not learned here
+        y[(~m) & (y >= 1)] = unknown  # variant, frequency class not learned here
     else:
         raise ValueError(f'mask scope must be one of {MASK_SCOPES}')
     return y
@@ -93,9 +101,10 @@ def make_batch(data, coords, window, head, class_weights, mask_scope='none'):
         m = rest[0] if rest else None
         xs.append(np.asarray(x[start:start + window], dtype=np.float32))
         ys.append(masked_labels(y[start:start + window],
-                                None if m is None else m[start:start + window], mask_scope))
+                                None if m is None else m[start:start + window], mask_scope,
+                                UNKNOWN if head == 'spectrum' else 3))
     X, Y = np.stack(xs), np.stack(ys)
-    if head == 'factorized':
+    if head in ('factorized', 'spectrum'):
         return X, Y.astype(np.float32)  # the loss masks -1 itself
     valid = Y >= 0
     W = np.where(valid, np.asarray(class_weights, dtype=np.float32)[np.where(valid, Y, 0)], 0.0)
@@ -149,7 +158,9 @@ def main():
     p.add_argument('--manifest', required=True)
     p.add_argument('--train-chromosomes', nargs='+', required=True)
     p.add_argument('--val-chromosomes', nargs='+', required=True)
-    p.add_argument('--head', choices=['softmax', 'factorized'], default='softmax')
+    p.add_argument('--head', choices=['softmax', 'factorized', 'spectrum'], default='softmax')
+    p.add_argument('--n-freq-classes', type=int, default=4,
+                   help='spectrum head: number of variant frequency classes in the labels')
     p.add_argument('--window', type=int, default=2048)
     p.add_argument('--batch-size', type=int, default=16)
     p.add_argument('--steps-per-epoch', type=int, default=1000)
@@ -158,7 +169,7 @@ def main():
     p.add_argument('--max-val-windows', type=int, default=5000)
     p.add_argument('--class-weights', nargs=3, type=float, default=[1, 1, 1],
                    help='softmax head only; predict.py undoes the weighting')
-    p.add_argument('--variant-pos-weight', type=float, default=1.0, help='factorized head only')
+    p.add_argument('--variant-pos-weight', type=float, default=1.0, help='factorized and spectrum heads')
     p.add_argument('--common-pos-weight', type=float, default=1.0, help='factorized head only')
     p.add_argument('--lr', type=float, default=1e-3)
     p.add_argument('--seed', type=int, default=0, help='change per ensemble member')
@@ -170,8 +181,8 @@ def main():
     args = p.parse_args()
     if set(args.train_chromosomes) & set(args.val_chromosomes):
         p.error('Validation chromosomes must be disjoint from training chromosomes')
-    if args.mask_scope == 'common' and args.head != 'factorized':
-        p.error('--mask-scope common requires --head factorized')
+    if args.mask_scope == 'common' and args.head not in ('factorized', 'spectrum'):
+        p.error('--mask-scope common requires --head factorized or spectrum')
     with open(args.manifest) as f:
         sources = json.load(f)
     needed = set(args.train_chromosomes + args.val_chromosomes)
@@ -184,6 +195,13 @@ def main():
         y = np.load(sources[c]['labels'], mmap_mode='r')
         if len(x) != len(y):
             p.error(f'{c}: dna and labels lengths differ ({len(x)} vs {len(y)})')
+        # Guard against pairing a head with the other label scheme: the losses
+        # would silently drop the classes they do not know.
+        top = max(int(np.asarray(y[s:s + 5_000_000]).max()) for s in range(0, len(y), 5_000_000))
+        expect = args.n_freq_classes if args.head == 'spectrum' else 2
+        if top > expect:
+            p.error(f'{c}: labels contain class {top} but --head {args.head} expects at most {expect}; '
+                    'spectrum labels need --head spectrum (and v1 labels a v1 head)')
         if args.mask_scope == 'none':
             data[c] = (x, y)
             continue
@@ -206,7 +224,7 @@ def main():
     tf.keras.utils.set_random_seed(args.seed)
     model = build_model(args.window, lr=args.lr, head=args.head,
                         variant_pos_weight=args.variant_pos_weight,
-                        common_pos_weight=args.common_pos_weight)
+                        common_pos_weight=args.common_pos_weight, n_freq=args.n_freq_classes)
     train_gen = random_batches(data, samplers, args.window, args.batch_size, args.head,
                                args.class_weights, args.seed, args.mask_scope)
     val_gen = fixed_batches(data, val, args.window, args.batch_size, args.head,
@@ -226,6 +244,8 @@ def main():
             'train_chromosomes': args.train_chromosomes,
             'val_chromosomes': args.val_chromosomes, 'seed': args.seed,
             'mask_scope': args.mask_scope}
+    if args.head == 'spectrum':
+        meta['n_freq_classes'] = args.n_freq_classes
     with open(args.out + '.meta.json.partial', 'w') as f:  # written last: marks completion
         json.dump(meta, f, indent=2)
     os.replace(args.out + '.meta.json.partial', args.out + '.meta.json')

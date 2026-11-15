@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Download the public inputs for run_plan.sh (GRCh38) into a data directory.
 #
-#   fetch_data.sh DATA_DIR [pilot|all]     (default: pilot)
+#   fetch_data.sh DATA_DIR [pilot|all|refs]     (default: pilot)
 #
 # pilot = chr1, chr17, chr19, chr20, chr21, chr22 (the chromosomes in
 # pilot.env.example); all = chr1-22 (the chromosomes in
-# chr_map_grch38_refseq.tsv). Run it on a login or transfer
+# chr_map_grch38_refseq.tsv); refs = no VCFs, only the accessibility mask,
+# RefSeq genome/annotation and phastCons (enough for experiments/spectrum,
+# which takes its variants from fetch_fullcallset.sh). Run it on a login or transfer
 # node (Great Lakes compute nodes may not have internet). Downloads resume
 # (curl -C -), files that are already complete are skipped, and any failure
 # stops the script. Total size: roughly 5 GB pilot, 30 GB all (mostly VCFs).
@@ -21,7 +23,8 @@ SET=${2:-pilot}
 case $SET in
   pilot) CHRS="chr1 chr17 chr19 chr20 chr21 chr22" ;;
   all)   CHRS=$(seq -f 'chr%g' 1 22 | tr '\n' ' ') ;;
-  *) echo "second argument must be pilot or all" >&2; exit 1 ;;
+  refs)  CHRS="" ;;
+  *) echo "second argument must be pilot, all or refs" >&2; exit 1 ;;
 esac
 
 KGP_BASE=${KGP_BASE:-https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV}
@@ -77,6 +80,7 @@ fi
 
 # Checks: every file present and non-empty; gzip files intact
 bad=0
+shopt -s nullglob   # the .gz copies may have been deleted after unpacking
 for f in "$D"/vcf/*.vcf.gz "$D"/refseq/*.gz "$D"/phastcons/*.gz; do
   gzip -t "$f" 2> /dev/null || { echo "corrupt: $f (delete it and rerun)" >&2; bad=1; }
 done

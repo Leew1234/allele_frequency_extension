@@ -57,6 +57,8 @@ def main(argv=None):
     if not paths:
         sys.exit(f'no model*.keras in {a.models}')
     models = [keras.models.load_model(p, custom_objects={'self_crossentropy': self_crossentropy}) for p in paths]
+    for m in models:  # no XLA: its autotuner fails on V100 GPUs
+        m.jit_compile = False
     print(f'ensemble of {len(models)}: {paths}')
 
     def predict_fn(x):

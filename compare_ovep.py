@@ -53,22 +53,39 @@ COLUMNS = ('obs_variant', 'exp_original', 'exp_new', 'obs_common', 'exp_new_comm
 
 
 class VariantScore:
-    """Slice-able per-site P(variant): a 1-D score as is, or P(rare)+P(common)
-    from (n_sites, 3) class probabilities. Works on memory-mapped arrays."""
+    """Slice-able per-site P(variant): a 1-D score as is, or the sum of the
+    variant classes from class probabilities ((n, 3) from the v1 heads, or
+    (n, 1 + K) from the spectrum head). Works on memory-mapped arrays.
 
-    def __init__(self, arr):
-        self.arr = arr
-        if arr.ndim == 2 and arr.shape[1] != 3:
-            raise ValueError('2-D predictions must have 3 columns (class probabilities)')
+    kind='singleton_share' instead returns P(singleton | variant) from
+    spectrum class probabilities (for descriptive use, e.g. how the expected
+    frequency spectrum varies with mutability)."""
+
+    def __init__(self, arr, kind='variant'):
+        self.arr, self.kind = arr, kind
+        if arr.ndim == 2 and arr.shape[1] < 3:
+            raise ValueError('2-D predictions must have at least 3 columns (class probabilities)')
         if arr.ndim not in (1, 2):
-            raise ValueError('predictions must be 1-D scores or (n, 3) class probabilities')
+            raise ValueError('predictions must be 1-D scores or (n, classes) class probabilities')
+        if kind not in ('variant', 'singleton_share'):
+            raise ValueError("kind must be 'variant' or 'singleton_share'")
+        if kind == 'singleton_share' and (arr.ndim != 2 or arr.shape[1] < 4):
+            raise ValueError('singleton_share needs spectrum class probabilities')
 
     def __len__(self):
         return len(self.arr)
 
     def __getitem__(self, sl):
         a = np.asarray(self.arr[sl], dtype=np.float64)
-        return a if a.ndim == 1 else a[:, 1] + a[:, 2]
+        if a.ndim == 1:
+            return a
+        pv = a[:, 1] + a[:, 2] if a.shape[1] == 3 else a[:, 1:].sum(axis=1)
+        if self.kind == 'variant':
+            return pv
+        with np.errstate(invalid='ignore', divide='ignore'):
+            share = np.where(pv > 0, a[:, 1] / pv, 0.0)   # 0, not NaN: the site stays scorable
+        share[~np.isfinite(pv)] = np.nan
+        return share
 
 
 class IntervalMask:
@@ -143,6 +160,9 @@ def block_sums(labels, original, new, masks, original_raw=None, block_size=100_0
     n = len(labels)
     if len(new) != n:
         raise ValueError(f'new predictions ({len(new)}) and labels ({n}) differ in length')
+    if new.ndim != 2 or new.shape[1] != 3:
+        raise ValueError('new predictions must be (n, 3) class probabilities; collapse a spectrum '
+                         'model first (python spectrum.py predictions/labels ...) or use spectrum_score.py')
     ref = VariantScore(original) if original is not None else None
     if original_raw is not None and (original is None or len(original_raw) != len(original)):
         raise ValueError('original and original-raw differ in length')

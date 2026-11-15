@@ -14,7 +14,8 @@ calibrate.py, fitted on the same ensemble's uncalibrated output) is applied
 last. A position is NaN if any member could not predict it.
 
 Output is a single (n_sites, 3) float32 .npy (P(none), P(rare), P(common)),
-written through a memory map; intermediate arrays also live on disk and all
+or (n_sites, 1 + K) for spectrum-head models (P(none), P(singleton),
+P(ultra-rare), P(rare), P(common) for K = 4), written through a memory map; intermediate arrays also live on disk and all
 post-processing is chunked, so peak RAM stays small even for chr1.
 """
 import argparse
@@ -23,7 +24,7 @@ import os
 import numpy as np
 from numpy.lib.format import open_memmap
 
-from model import to_class_probabilities
+from model import to_class_probabilities, n_output_classes
 
 CHUNK = 5_000_000
 
@@ -107,7 +108,7 @@ def main():
     p.add_argument('--model', required=True, nargs='+', help='one or more .keras models (ensemble)')
     p.add_argument('--meta', nargs='+', help='defaults to <model>.meta.json for each model')
     p.add_argument('--dna', required=True, help='One-hot .npy for a chromosome')
-    p.add_argument('--output', required=True, help='Output .npy path (n_sites x 3, float32)')
+    p.add_argument('--output', required=True, help='Output .npy path (n_sites x classes, float32)')
     p.add_argument('--calibration', help='JSON from calibrate.py')
     p.add_argument('--batch-size', type=int, default=64)
     args = p.parse_args()
@@ -124,10 +125,17 @@ def main():
                     'the head and class weights needed to interpret the output')
         with open(path) as f:
             meta_objs.append(json.load(f))
+    n_classes = {n_output_classes(m) for m in meta_objs}
+    if len(n_classes) != 1:
+        p.error('the models of an ensemble must share a head (same number of classes)')
+    n_classes = n_classes.pop()
     calibration = None
     if args.calibration:
         with open(args.calibration) as f:
             calibration = json.load(f)
+        cal_classes = calibration.get('n_classes', 3)
+        if cal_classes != n_classes:
+            p.error(f'--calibration was fitted for {cal_classes} classes, the models output {n_classes}')
 
     import tensorflow as tf
     dna = np.load(args.dna, mmap_mode='r')
@@ -136,7 +144,7 @@ def main():
     # Written under a temporary name and renamed only when complete, so an
     # interrupted run never leaves a full-size but unfinished output behind.
     partial = os.path.join(out_dir, os.path.basename(args.output) + '.partial.npy')
-    acc = open_memmap(partial, mode='w+', dtype=np.float32, shape=(n, 3))  # zero-filled
+    acc = open_memmap(partial, mode='w+', dtype=np.float32, shape=(n, n_classes))  # zero-filled
     tmp = os.path.join(out_dir, os.path.basename(args.output) + '.raw.tmp.npy')
     try:
         for model_path, meta in zip(args.model, meta_objs):

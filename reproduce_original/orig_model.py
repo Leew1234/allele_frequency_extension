@@ -47,7 +47,7 @@ def cnn1d(size=WINDOW, channel=4):
     conv9 = Conv1D(32, 3, activation='relu', padding='same')(up9)
     conv9 = Conv1D(1, 3, activation='sigmoid', padding='same')(conv9)
     model = Model(inputs=[the_input], outputs=[conv9])
-    model.compile(loss=self_crossentropy, optimizer='adam', metrics=['mean_absolute_error'])
+    model.compile(loss=self_crossentropy, optimizer='adam', metrics=['mean_absolute_error'], jit_compile=False)
     return model
 
 

@@ -24,7 +24,11 @@ Config (JSON):
         "neutral": "pred/half1/neutral/NC_000002.12.npy"}}}
 }
 "score" = a 1-D per-site score (the original model, gnomAD or Roulette
-rates aligned to the chromosome); "classes" = (n, 3) from predict.py. 1-D
+rates aligned to the chromosome); "classes" = class probabilities from
+predict.py ((n, 3), or (n, 1 + K) from a spectrum model), scored by
+P(variant); "singleton_share" = spectrum class probabilities scored by
+P(singleton | variant), a descriptive check of how the expected spectrum
+shape tracks mutability (recurrent mutation lowers it at mutable sites). 1-D
 scores shorter than the chromosome are head-aligned; "raw" marks unpredicted
 sites (exactly 0) to exclude. DNM files: tab-separated chrom, 1-based pos;
 extra columns and '#' header lines are ignored.
@@ -98,11 +102,11 @@ def collect(config, dnm_sets, neg_sites, seed=0, chunk=CHUNK):
             spec = spec if isinstance(spec, dict) else {'path': spec}
             arr = np.load(spec['path'], mmap_mode='r')
             kind = config['models'][mname]
-            if (kind == 'classes') != (arr.ndim == 2):
+            if (kind in ('classes', 'singleton_share')) != (arr.ndim == 2):
                 raise ValueError(f'{seqid}/{mname}: kind {kind!r} but array has {arr.ndim} dims')
             if arr.ndim == 2 and len(arr) != n:
                 raise ValueError(f'{seqid}/{mname}: {len(arr)} rows vs chromosome length {n}')
-            preds[mname] = VariantScore(arr)
+            preds[mname] = VariantScore(arr, 'singleton_share' if kind == 'singleton_share' else 'variant')
             raws[mname] = np.load(spec['raw'], mmap_mode='r') if 'raw' in spec else None
         dn = {name: np.array(sorted(p for p in s.get(c.get('dnm_name', seqid), set()) if 0 <= p < n),
                              dtype=np.int64)

@@ -1,0 +1,370 @@
+{
+  "version": "2.0-draft",
+  "frozen_on": "NOT FROZEN",
+  "note": "DRAFT criteria for the frequency-spectrum analysis (plan v2). Not frozen: there is deliberately no criteria_v2_draft.sha256, and evaluate_plan.py reports 'no frozen hash found' until the file is copied to its final name and frozen with --freeze, which must happen before any real-data result exists. Three criteria differ from the first plan document and need Yang's agreement before freezing. F2 is a partial order (CDS and conserved non-coding each above enhancers, every constrained tier above neutral) instead of a strict four-step chain, because the relative per-site constraint of CDS and phastCons non-coding elements is not established; that contrast is reported but not a criterion. F3 tests flatness of the adjusted singleton share across mutability bins on neutral sequence instead of 'spectrum shape does not predict de novo mutations': the expected spectrum itself must depend on mutability (recurrent mutation lowers the singleton share at mutable sites), so only the adjusted residual can be free of it; the de novo AUC of P(singleton | variant) is reported descriptively. F5 compares predictive log-likelihood of the frequency class on neutral sequence (a proper scoring rule) instead of the size of the constraint gradient, because a biased adjustment can produce a larger gradient. The model is trained and calibrated on mask AB (unannotated and outside phastCons elements padded by 100 bp), not on mask A as in v1, because mask A still contains conserved sequence without annotation; T1, T1v and T2 are checked on mask AB. T1 checks the conditional class shares (oe_share), which is what the calibration fits and what the scores use; the unconditional per-class ratio (oe_marginal) also depends on how P(variant) and the class distribution co-vary, is not guaranteed by the calibration, and is reported as a diagnostic only. T3 (label agreement with bcftools, per class) is a stop rule checked by hand from results/validation, as in v1. Paths are relative to the results directory; {half}, {bin}, {cls} and {seed} expand over 'over'.",
+  "criteria": [
+    {
+      "id": "F1",
+      "group": "primary",
+      "claim": "Coding sequence: singleton share exceeds the mutability-adjusted neutral expectation (oe_share singleton, lower 95% bound > 1)",
+      "left": {
+        "file": "{half}/neutralAB_vs_kmer3.json",
+        "path": [
+          "categories",
+          "tier_cds",
+          "ci95",
+          "oe_share",
+          "singleton",
+          0
+        ]
+      },
+      "op": ">",
+      "right": 1.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "F2a",
+      "group": "primary",
+      "claim": "Constraint gradient: CDS above neutral (paired difference of oe_share singleton, lower 95% bound > 0)",
+      "left": {
+        "file": "{half}/neutralAB_vs_kmer3.json",
+        "path": [
+          "contrasts",
+          "tier_cds_minus_tier_neutral",
+          "oe_share",
+          "singleton",
+          "ci95",
+          0
+        ]
+      },
+      "op": ">",
+      "right": 0.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "F2b",
+      "group": "primary",
+      "claim": "Constraint gradient: conserved non-coding (phastCons outside CDS) above neutral",
+      "left": {
+        "file": "{half}/neutralAB_vs_kmer3.json",
+        "path": [
+          "contrasts",
+          "tier_conserved_noncoding_minus_tier_neutral",
+          "oe_share",
+          "singleton",
+          "ci95",
+          0
+        ]
+      },
+      "op": ">",
+      "right": 0.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "F2c",
+      "group": "primary",
+      "claim": "Constraint gradient: enhancers above neutral",
+      "left": {
+        "file": "{half}/neutralAB_vs_kmer3.json",
+        "path": [
+          "contrasts",
+          "tier_enhancer_minus_tier_neutral",
+          "oe_share",
+          "singleton",
+          "ci95",
+          0
+        ]
+      },
+      "op": ">",
+      "right": 0.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "F2d",
+      "group": "primary",
+      "claim": "Constraint gradient: CDS above enhancers",
+      "left": {
+        "file": "{half}/neutralAB_vs_kmer3.json",
+        "path": [
+          "contrasts",
+          "tier_cds_minus_tier_enhancer",
+          "oe_share",
+          "singleton",
+          "ci95",
+          0
+        ]
+      },
+      "op": ">",
+      "right": 0.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "F2e",
+      "group": "primary",
+      "claim": "Constraint gradient: conserved non-coding above enhancers",
+      "left": {
+        "file": "{half}/neutralAB_vs_kmer3.json",
+        "path": [
+          "contrasts",
+          "tier_conserved_noncoding_minus_tier_enhancer",
+          "oe_share",
+          "singleton",
+          "ci95",
+          0
+        ]
+      },
+      "op": ">",
+      "right": 0.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "F3",
+      "group": "primary",
+      "claim": "Separation from mutation rate: on neutral sequence the adjusted singleton share is flat across the ten mutability bins (oe_share singleton in 0.95-1.05 in every bin)",
+      "left": {
+        "file": "{half}/neutralAB_vs_kmer3.json",
+        "path": [
+          "categories",
+          "tier_neutral",
+          "mutability_bins",
+          "{bin}",
+          "oe_singleton_share"
+        ]
+      },
+      "op": "between",
+      "right": [
+        0.95,
+        1.05
+      ],
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ],
+        "bin": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ]
+      }
+    },
+    {
+      "id": "F4",
+      "group": "guardrail",
+      "claim": "P(variant) still predicts de novo mutations: AUC (Icelandic DNMs) at most 0.01 below the original OVEP model (paired DeLong lower 95% bound)",
+      "left": {
+        "file": "{half}/denovo.json",
+        "path": [
+          "iceland_2017",
+          "pairs",
+          "neutralAB_minus_original",
+          "ci95_delong",
+          0
+        ]
+      },
+      "op": ">=",
+      "right": -0.01,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "F5",
+      "group": "primary",
+      "claim": "The network predicts the neutral frequency spectrum better than the trinucleotide table: gain in -log P(class | variant) per variant on neutral sequence, lower 95% bound > 0",
+      "left": {
+        "file": "{half}/neutralAB_vs_kmer3.json",
+        "path": [
+          "categories",
+          "tier_neutral",
+          "ci95",
+          "vs_baseline",
+          "nll_gain",
+          0
+        ]
+      },
+      "op": ">",
+      "right": 0.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "T1",
+      "group": "sanity",
+      "claim": "Class calibration on the training-neutral mask (AB): for each class, observed variants / expected given where variants were observed (oe_share) in 0.95-1.05",
+      "left": {
+        "file": "{half}/neutralAB_vs_kmer3.json",
+        "path": [
+          "categories",
+          "neutralAB",
+          "oe_share",
+          "{cls}"
+        ]
+      },
+      "op": "between",
+      "right": [
+        0.95,
+        1.05
+      ],
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ],
+        "cls": [
+          "singleton",
+          "ultra_rare",
+          "rare",
+          "common"
+        ]
+      }
+    },
+    {
+      "id": "T1v",
+      "group": "sanity",
+      "claim": "Variant-site calibration on the training-neutral mask (AB) (the v1 criterion S1): observed/expected in 0.95-1.05",
+      "left": {
+        "file": "{half}/neutralAB_vs_kmer3.json",
+        "path": [
+          "categories",
+          "neutralAB",
+          "oe_any"
+        ]
+      },
+      "op": "between",
+      "right": [
+        0.95,
+        1.05
+      ],
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "T2",
+      "group": "sanity",
+      "claim": "Singleton share on the training-neutral mask (AB) matches the expectation (oe_share singleton in 0.95-1.05)",
+      "left": {
+        "file": "{half}/neutralAB_vs_kmer3.json",
+        "path": [
+          "categories",
+          "neutralAB",
+          "oe_share",
+          "singleton"
+        ]
+      },
+      "op": "between",
+      "right": [
+        0.95,
+        1.05
+      ],
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ]
+      }
+    },
+    {
+      "id": "R2",
+      "group": "robustness",
+      "claim": "Seeds: the CDS singleton excess (oe_share singleton > 1) holds for at least 4 of 5 single-seed models",
+      "left": {
+        "file": "{half}/neutralAB_seed{seed}.json",
+        "path": [
+          "categories",
+          "tier_cds",
+          "oe_share",
+          "singleton"
+        ]
+      },
+      "op": ">",
+      "right": 1.0,
+      "over": {
+        "half": [
+          "half1",
+          "half2"
+        ],
+        "seed": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "require": {
+        "seed": 4
+      }
+    }
+  ],
+  "decisions": {
+    "H3: the mutability-adjusted singleton share is elevated in constrained sequence": [
+      "F1",
+      "F2a",
+      "F2b",
+      "F2c",
+      "F2d",
+      "F2e",
+      "T1",
+      "T1v",
+      "T2"
+    ],
+    "H4: mutation rate and selection are separated": [
+      "F3",
+      "F4",
+      "T2"
+    ],
+    "H5: the network's adjustment is better than the trinucleotide adjustment": [
+      "F5",
+      "T2"
+    ]
+  }
+}
